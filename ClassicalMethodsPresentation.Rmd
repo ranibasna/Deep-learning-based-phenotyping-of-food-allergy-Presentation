@@ -1,0 +1,351 @@
+---
+title: "Classical Clustering Methods with Dimensionality reductions"
+author: Rani Basna.
+date: April 25, 2019
+output: revealjs::revealjs_presentation
+---
+
+# Dimensionality reduction
+## Factor Analaysis for mixed data
+- is a principal component method dedicated to analyze a data set containing both quantitative and qualitative variables (Pagès, 2004). It makes it possible to analyze the similarity between individuals by taking into account a mixed types of variables. Additionally, one can explore the association between all variables, both quantitative and qualitative variables.
+- Since our dataset conatin both continuous and categorical variables we will be running Factor analysis for mixed data to try to reduce the data dimensions.
+
+--- 
+
+- Roughly speaking, the FAMD algorithm can be seen as a mixed between principal component analysis (PCA) and multiple correspondence analysis (MCA). In other words, it acts as PCA quantitative variables and as MCA for qualitative variables.
+- Quantitative and qualitative variables are normalized during the analysis in order to balance the influence of each set of variables.
+- We will be using the FactoMineR (for the analysis) and factoextra (for data visualization) R packages.
+
+
+```{r loadlib, include=FALSE}
+mydata <- read.csv('/Users/xbasra/Documents/Data/Clustering/Airway Disease Phenotyping Data Sets/WSAS And OLIN Airway Disease Phenotyping.csv')
+library("factoextra")
+library('FactoMineR')
+library('mclust')
+library("seriation")
+library("clustertend")
+library(Rtsne) 
+library(caret)
+library(dplyr)
+library(fpc)
+library(NbClust)
+library(clValid)
+library(magrittr)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(clValid)
+library(ggplot2)
+library(corrplot)
+library(caret)
+
+# droping lopnr
+drops <- c("lopnr")
+mydata <- mydata[ , !(names(mydata) %in% drops)]
+
+# Selecting Specific Variables under the selection creteria
+#mydata_slec <- mydata %>% select(3,4,5,7,8,9,10,13,15,16,17,24,6,20,21,22,23)
+mydata_slec <- mydata %>% select(3,4,5,7,8,9,10,13,14,15,16,17,18,19,24,6,20,21,22,23)
+
+# this is only to adjust the smoking varaible to three categories Basically replacing number 0 with Never-Smoker
+mydata_slec <- mydata_slec %>% mutate(ever_smoker20py=replace(ever_smoker20py, ever_smoker20py==0, 'Never-smoker')) %>% as.data.frame()
+# changing any_airway_medication to yes no question 
+mydata_slec <- mutate(mydata_slec, any_airw_medication = if_else(any_airw_medication == "1", "yes","no"))
+# replacing ever_Somoker variable with integer values
+mydata_slec$ever_smoker20py <- ifelse(mydata_slec$ever_smoker20py == 'Never-smoker',0, ifelse(mydata_slec$ever_smoker20py == '<=20 packyears',1, ifelse(mydata_slec$ever_smoker20py == '>20 packyears',2,0)))
+# converting the ever somke to integer variable
+mydata_slec$ever_smoker20py <- as.integer(mydata_slec$ever_smoker20py)
+# changing any_air_medication to factor variable
+mydata$any_airw_medication <- as.factor(mydata$any_airw_medication)
+# spliting the data
+sel_splits <- split(names(mydata_slec),sapply(mydata_slec, function(x) paste(class(x), collapse=" "))) # spliting the data 
+
+
+# mydata2
+mydata2 <- mutate(mydata, Longstanding_cough = if_else(Longstanding_cough == "Yes", 1L, 0L),
+                  Sputum_production = if_else(Sputum_production == "Yes", 1L,0L),
+                  Chronic_productive_cough = if_else(Chronic_productive_cough == "Yes", 1L, 0L),
+                  Recurrent_wheeze = if_else(Recurrent_wheeze == "Yes", 1L,0L),
+                  wheeze_ever = if_else(wheeze_ever == "yes", 1L, 0L),
+                  exp_dust_work = if_else(exp_dust_work == "Yes",1L,0L),
+                  current_asthma = if_else(current_asthma == "yes", 1L,0L),
+                  wheezeSB = if_else(wheezeSB == "yes",1L,0L),
+                  rhinitis_ever = if_else(rhinitis_ever == "yes",1L,0L),
+                  current_rhinitis = if_else(current_rhinitis == "yes", 1L,0L),
+                  exacerbations = if_else(exacerbations == "yes",1L,0L),
+                  fam_asthma_allergy = if_else(fam_asthma_allergy == "yes", 1L,0L),
+                  fam_bronch_emphys = if_else(fam_bronch_emphys== "yes",1L,0L),
+                  IgEorSPT = if_else(IgEorSPT == "yes",1L,0L),
+                  gender = if_else(gender == "male", 1L,0L)) 
+
+
+mydata2$ever_smoker20py <- ifelse(mydata2$ever_smoker20py == 'Never-smoker',0, ifelse(mydata2$ever_smoker20py == '<=20 packyears',1, ifelse(mydata2$ever_smoker20py == '>20 packyears',2,0)))
+mydata2$kohort <- ifelse(mydata2$kohort == 'OLIN',0, ifelse(mydata2$kohort == 'WSAS',1,2))
+mydata2_slec <- mydata2 %>% select(3,4,5,7,8,9,10,13,14,15,16,17,18,19,24,6,20,21,22,23)
+
+# to use gower matrix we change the type of the coloumns
+mydata2_slec$ever_smoker20py <- as.ordered(mydata2_slec$ever_smoker20py)
+mydata2_slec$dyspneaMRC <- as.ordered(mydata2_slec$dyspneaMRC)
+mydata2_slec$any_airw_medication <- as.factor(mydata2_slec$any_airw_medication)
+# calculating the gower matrix 
+#gower_dist3 <- daisy(mydata_slec, metric = "gower", 
+#                     type = list(ordratio = c(2,3,15), symm=c(1,8,11,18,20), asymm=c(4,5,7,9,10,12,13,14,16,17,19,24)))
+
+gower_dist_sel <- daisy(mydata2_slec, metric = "gower", type = list(ordratio=c(1,10), symm=c(17), asymm=c(2,3,4,5,6,7,8,9,11,12,13,14,15,17)))
+
+# for us to be abel to calculate the hopkins test for the original data set we need to 
+```
+
+
+## Correlation Analysis
+- We start with looking at the correlation between the numerical variables to get an idae and feeling of our numerical variables.
+
+```{r, echo=FALSE}
+splits <- split(names(mydata_slec),sapply(mydata_slec, function(x) paste(class(x), collapse=" "))) # spliting the data
+only_num <- mydata_slec[,unlist(splits[4])]
+scaled_only_num <- scale(only_num)
+corr_n <- cor(scaled_only_num)
+round(corr_n, 2)
+```
+
+
+## Correlation plot
+```{r, echo=FALSE}
+corrplot(corr_n, type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45)
+```
+
+---
+
+- using the FactoMineR package we generate the following the graphs
+```{r, echo=FALSE}
+n <- 20
+res.famd <- FAMD(mydata_slec, ncp=n, graph = FALSE)
+print(res.famd)
+eig.val <- get_eigenvalue(res.famd)
+head(eig.val, n)
+```
+
+---
+
+- Percentage of varaince explained by each dimension
+```{r, echo=FALSE}
+fviz_screeplot(res.famd)
+# converting the yes, no uper case to lowercase 
+#df <- df %>%  mutate(colB = tolower(colB)
+#df <- mydata_slec%>% mutate_at(c())
+#mydata_slec <- as.data.frame(apply(mydata_slec,2,tolower))
+#mydata_slec1 <- mydata_slec %>% mutate_at(c('exp_dust_work','Longstanding_cough','Sputum_production','Chronic_productive_cough','Recurrent_wheeze'),tolower)
+#mydata_slec <- mutate_all(mydata_slec, tolower)
+res.famd <- FAMD(mydata_slec, ncp=13, graph = FALSE)
+eig.val <- get_eigenvalue(res.famd)
+famd_df <- res.famd$ind$coord
+famd_df <- as.data.frame(famd_df)
+famd_df <- as.data.frame(scale(famd_df)) # scaling the data 
+```
+
+---
+
+```{r, echo=FALSE}
+quanti.var <- get_famd_var(res.famd, "quanti.var")
+quali.var <- get_famd_var(res.famd, "quali.var")
+fviz_famd_var(res.famd, "quanti.var", col.var = "contrib", 
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+```
+
+---
+
+- From above we notice that there are no dimension that produce zero variance. We probably have a highlly uncorrelated data.However. Thus we will choose to keep the first 11 dimension in order to remove the effect of the variables that has small variation and cluster on the variables that have high degree of variation.
+- Next we will study evaluating the clustering tendency. We run the test against both the reduced dimensional data and the original data. 
+- Running hopkins test to measure the clustering tendacy: 
+
+```{r, echo=FALSE, eval=FALSE}
+cluster_tendacy <- get_clust_tendency(famd_df, n = nrow(famd_df)-1, graph = FALSE)
+clustering_Tendacy <- cluster_tendacy$hopkins_stat
+clustering_Tendacy
+#pp <- preProcess(mydata2, method = "range") # scaling the data
+#scaled_mydata2<- predict(pp, mydata2)
+#cluster_tendacy_od <- get_clust_tendency(scaled_mydata2, n = nrow(scaled_mydata2)-1, graph = FALSE)
+#cluster_tendacy_od$hopkins_stat
+```
+
+# Clustering Analysis
+## choosing the best algorithm for the reduced data
+- We run some tests to select the best algorithm that can cluster our data and Compute internal clustering Validation
+```{r, echo=FALSE}
+clmethods <- c("hierarchical","kmeans","pam")
+intern <- clValid(famd_df, nClust = 2:8,
+                  clMethods = clmethods, validation = "internal", maxitems = 1200)
+
+# Summary
+summary(intern)
+
+```
+## Stability measures/Validation
+
+```{r,echo=FALSE}
+intern_s <- clValid(famd_df, nClust = 2:8,
+                  clMethods = clmethods, validation = "stability", maxitems = 1200)
+summary(intern_s)
+```
+
+```{r, results="hide", include=FALSE}
+nb <- NbClust(famd_df, distance = "euclidean", min.nc = 2,
+max.nc = 10, method = "ward.D2")
+```
+## Plotting the results
+```{r,echo=FALSE, results='hide', fig.keep='all'}
+fviz_nbclust(nb)
+```
+
+# Clustering
+## hierarchical clustering
+- Since 2 clusters are not intersting choice we can see that the some tests suggested 3 and 5 cluster which is more interesting. we can try that. 
+- Steps to agglomerative hierarchical clustering
+ 1. Preparing the data
+ 2. Computing (dis)similarity information between every pair of objects in the data set.
+ 3. Using linkage function to group objects into hierarchical cluster tree, based on the distance information generated at step 1. Objects/clusters that are in close proximity are linked together using the linkage function.
+ 4. Determining where to cut the hierarchical tree into clusters. This creates a partition of the data.
+
+---
+
+- We try first the default method word D2.
+```{r, echo=FALSE}
+res.dist <- dist(famd_df, method = 'euclidean')
+#res.hc <- hclust(d= res.dist, method = 'ward.D2')
+res.eword2d <- eclust(famd_df, FUNcluster = 'hclust', k = 6, hc_metric ="euclidian", hc_method = "ward.D2")
+fviz_dend(res.eword2d, show_labels = FALSE, palette = "jco", as.ggplot=TRUE)
+```
+
+---
+
+- if we change the linkage method to word D we get the following clusters
+```{r, echo=FALSE}
+res.ech <- eclust(famd_df, FUNcluster = 'hclust', k = 6, hc_metric = 'euclidian', hc_method = "ward.D")
+fviz_dend(res.ech, show_labels = FALSE, palette = "jco", as.ggplot=TRUE)
+```
+
+---
+
+- Let us try next the average method
+```{r, echo=FALSE}
+res.eaverage <- eclust(famd_df, FUNcluster = 'hclust', k = 5, hc_metric = 'euclidian', hc_method = "average")
+fviz_dend(res.eaverage, show_labels = FALSE, palette = "jco", as.ggplot=TRUE)
+```
+
+## calculating the cophenetic correlation to compare and validate the best hierarichal method
+
+
+```{r, eval=FALSE}
+res.eucdist <- dist(famd_df, method = 'euclidean')
+#res.eucdist <- dist(famd_df, method = 'euclidean')
+res.coph_wordd2 <- cophenetic(res.eword2d)
+res.coph_average <- cophenetic(res.eaverage)
+res.coph_wordd <- cophenetic(res.ech)
+cor(res.eucdist, res.coph_wordd)
+cor(res.eucdist, res.coph_wordd2)
+cor(res.eucdist,res.coph_average)
+```
+
+
+## runniong some validation using the Silhouette measures
+
+- method wordD
+```{r,echo=FALSE, results='hide', fig.keep='all'}
+fviz_silhouette(res.ech, palette= "jco", ggtheme= theme_classic())
+```
+
+
+---
+
+- method word D""
+```{r, echo=FALSE, results="hide", fig.keep='all'}
+fviz_silhouette(res.eword2d, palette= "jco", ggtheme= theme_classic())
+```
+
+<!-- method average -->
+<!-- ```{r} -->
+<!-- fviz_silhouette(res.eaverage, palette= "jco", ggtheme= theme_classic()) -->
+<!-- ``` -->
+
+## runing hierarchical on the original data set using the gower distance
+```{r, echo=FALSE}
+fit <- hclust(d = gower_dist_sel, method="ward.D2") 
+plot(fit)
+coph_or_wardd2 <- cophenetic(fit)
+cor(gower_dist_sel,coph_or_wardd2)
+```
+
+---
+
+- method ward D
+```{r}
+fit2 <- hclust(d = gower_dist_sel, method="ward.D") 
+plot(fit2)
+```
+
+# Dimensionality reduction, Hierarichal clustering and k-means:
+## Pipline of three algorithims
+- <small> we can repeat the same here and use 85% of the varoiation (information) in the data to run the above pipline. Here we first apply a factor analysis for the mixed data. we used the first 13 dimensions that explain approximately 85 % of the varaince. the motivation come from the fact that we do care about the dimensions that produce the higher varaince and we want to cluster on these dimensions. Next we run a Hierarichal clustering and then we perform k-means clustering to improve the inital clustering produced by the hierarichal algorithm. </small>
+
+- <small> Another motivation point to run dimensionality reduction is that with more of the total variance concentrated in the first few principal components compared to the same noise variance, the proportionate effect of the noise is less—the first few components achieve a higher signal-to-noise ratio. FAMD thus can have the effect of concentrating much of the signal into the first few principal components, which can usefully be captured by dimensionality reduction; while the later principal components may be dominated by noise, and so disposed of without great loss.</small>
+
+- <small> cluster with k-means on the results of the factor analysis. The idea is to run first the k-means to produce a small number of  cluster as a starting point for the Hierarichal algorithim. Then feed in the results to the Hierarichal clustering.</small>
+
+## k_means clustering algorithm
+1. Specify the number of clusters (K) to be created.
+2. Select randomly k objects from the data as initial centers.
+3. Assigns each observation to their closest centroid, based on the distance between the object and the centroid.
+4. For each of the k clusters update the cluster centroid by calculating the new mean values of all the data points in the cluster. The centoid of a Kth cluster is a vector of length p containing the means of all variables for the observations in the kth cluster; p is the number of variables.
+5. Minimize the total within sum of square by iterating steps 3 and 4 until the cluster assignments stop changing or the maxiter is reached. By default, the R software uses 10 as maxiter.
+
+---
+
+```{r, echo=FALSE, warning=F}
+res.hcpc1 <- HCPC(res.famd, kk = 20, nb.clust = -1)
+res.dist <- daisy(famd_df)
+#hcpc_stats1 <- cluster.stats(res.dist, as.integer(res.hcpc1$data.clust$clust))
+#hcpc_stats1
+```
+
+
+## Let us display the quatitative variables that describe the most
+
+- We can see that the variables fvc and fev1 are the most significant for the cluster 1 while the variables dyspendaMRC and BMI are the most significant for cluster 3.
+```{r, echo=FALSE}
+res.hcpc1$desc.var$quanti
+```
+
+
+## We can do the same for the categorical variables
+```{r, echo=FALSE}
+res.hcpc1$desc.var$category
+```
+
+## Running first the Hierarchial then K-means to decid on the optimal cutting
+
+```{r, echo=FALSE,warning=FALSE}
+# hierarichal clutering and k-means for choosing the clusters
+res.hcpc2 <- HCPC(res.famd, graph = FALSE, min = 1)
+fviz_dend(res.hcpc2, cex=0.7, repel = TRUE,
+          palette = "jco",
+          rect = TRUE, rect_fill = TRUE,
+          rect_border = "jco",
+          labels_track_height = 0.8)
+#hcpc_stats2 <- cluster.stats(res.dist, as.integer(res.hcpc2$data.clust$clust))
+#hcpc_stats2
+```
+
+---
+
+```{r, echo=FALSE}
+res.hcpc2$desc.var
+```
+
+# Ongoing Clustering analysis methods
+## Some advanced clustering and dimensionality methods that are under construction
+- Topololgical methods (nonlinea) Uniform Manifold Approximation and Projection (UMAP) 
+- Mixture of Gaussian
+- Autoencoder (nonlinear) Deep nueral network approach
+- Latent Dirchlit Allocation (mixed meberships)

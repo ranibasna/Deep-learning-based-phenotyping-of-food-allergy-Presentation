@@ -1,0 +1,14 @@
+base
+FactoMineR
+ggplot2
+factoextra
+Rtsne
+plotly
+tidyverse
+tibble
+tidyr
+readr
+purrr
+dplyr
+stringr
+forcats
